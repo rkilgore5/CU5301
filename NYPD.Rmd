@@ -1,0 +1,171 @@
+---
+title: "NYPD_project"
+date: "2025-03-18"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+#library(lubridate)
+#library(ggplot2)
+```
+
+The goal of this project is to explore the NYPD shooting data by creating a few visuals and a model.
+
+Import Data:
+```{r get_data}
+url_nypd <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+nypd_data <- read.csv(url_nypd)
+#summary(nypd_data)
+```
+
+Clean the data by limiting to variables of interest, converting occur date and time to actual date and time variables.
+```{r clean_data}
+nypd_clean <- nypd_data %>%
+  select(c("OCCUR_DATE","OCCUR_TIME", "BORO","PRECINCT",
+           "STATISTICAL_MURDER_FLAG","VIC_AGE_GROUP","VIC_SEX","VIC_RACE"
+           , "PERP_AGE_GROUP", "PERP_SEX", "PERP_RACE" )) %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE),
+         OCCUR_TIME = hms(OCCUR_TIME),
+         STATISTICAL_MURDER_FLAG = as.logical(STATISTICAL_MURDER_FLAG),
+         Shootings = 1,
+         Year = year(OCCUR_DATE),
+         Month = month(OCCUR_DATE),
+         Hour = hour(OCCUR_TIME))
+```
+
+Various graphs looking at the number of shootings by year, hour, boroughs, precincts, perp data, and killings.  
+```{r graph1}
+nypd_clean %>%
+  ggplot(aes(x = Year)) +
+  geom_bar() +
+  labs(title = "NYPD Shooting Incidents by Year",
+       x = "Year",
+       y = "Total Number of Shootings")
+```
+
+```{r graph_hr}
+nypd_clean %>%
+  ggplot(aes(x = Hour)) +
+  geom_bar() +
+  labs(title = "NYPD Shooting Incidents by Hour",
+       x = "Hour",
+       y = "Total Number of Shootings")
+```
+
+```{r graph2}
+nypd_clean %>%
+  ggplot(aes(x = BORO, fill = BORO)) +
+  geom_bar() +
+  labs(title = "NYPD Shooting Incidents by Borough",
+       subtitle = "Years: 2006 - 2021",
+       x = "Boroughs",
+       y = "Total Number of Shootings")
+
+```
+
+```{r graph3}
+nypd_clean %>%
+  ggplot(aes(x = PRECINCT)) +
+  geom_bar() +
+  labs(title = "NYPD Shooting Incidents by Precinct",
+       x = "Precinct",
+       y = "Total Number of Shootings")
+```
+
+
+```{r graph4}
+nypd_clean %>%
+  ggplot(aes(x = PERP_RACE)) +
+  geom_bar() +
+  labs(title = "NYPD Shooting Incidents by Victims Race",
+       x = "Victims Race",
+       y = "Total Number of Shootings")
+```
+
+```{r graph5}
+nypd_clean %>%
+  ggplot(aes(x = PERP_AGE_GROUP )) +
+  geom_bar() +
+  labs(title = "NYPD Shooting Incidents by Victims Age Group",
+       x = "Victims Age Group",
+       y = "Total Number of Shootings")
+```
+
+```{r graph6}
+nypd_clean %>%
+  ggplot(aes(x = PERP_SEX )) +
+  geom_bar() +
+  labs(title = "NYPD Shooting Incidents by Victims Sex",
+       x = "Victims Sex",
+       y = "Total Number of Shootings")
+```
+
+```{r graph7}
+nypd_clean %>%
+  ggplot(aes(x = STATISTICAL_MURDER_FLAG  )) +
+  geom_bar() +
+  labs(title = "NYPD Shooting Incidents by Murders",
+       x = "Murders",
+       y = "Total Number of Shootings")
+```
+
+As we saw with hour there is a quadradic relationship.  So, let's try to a simple model of shooting by  hour.
+```{r model}
+nypd_hour_mod <- nypd_clean %>%
+     group_by(Hour, Shootings) %>%
+     summarize(Shootings = sum(Shootings),
+               STATISTICAL_MURDER_FLAG = sum(STATISTICAL_MURDER_FLAG))
+
+mod <-lm(data=nypd_hour_mod, Shootings ~ Hour )
+summary(mod)
+
+nypd_hour_mod <- nypd_hour_mod %>% 
+     ungroup() %>% 
+     mutate(pred = predict(mod, newdata = nypd_hour_mod))
+ nypd_hour_mod <- nypd_hour_mod %>% 
+     rowwise() %>% 
+     mutate(pred = predict(mod, newdata = cur_data()))
+```
+
+```{r model_graph}
+nypd_hour_mod  %>%
+  ggplot()+
+  geom_point(aes(x=Hour, y=Shootings), color = "blue") +
+  geom_point(aes(x=Hour, y=pred), color = "red")
+```
+
+As we saw with model one, a linear relationship doesn't model shootings well.  Let's try adding a quadratic hour variable and see if that gets a better model.  
+
+```{r model_2}
+nypd_hour_mod <- nypd_clean %>%
+     group_by(Hour, Shootings) %>%
+     summarize(Shootings = sum(Shootings),
+               STATISTICAL_MURDER_FLAG = sum(STATISTICAL_MURDER_FLAG)) %>% 
+     mutate(hour_sq = Hour^2)
+
+mod <-lm(data=nypd_hour_mod, Shootings ~ Hour + hour_sq )
+summary(mod)
+
+nypd_hour_mod <- nypd_hour_mod %>% 
+     ungroup() %>% 
+     mutate(pred = predict(mod, newdata = nypd_hour_mod))
+ nypd_hour_mod <- nypd_hour_mod %>% 
+     rowwise() %>% 
+     mutate(pred = predict(mod, newdata = cur_data()))
+```
+
+
+```{r model_graph2}
+nypd_hour_mod  %>%
+  ggplot()+
+  geom_point(aes(x=Hour, y=Shootings), color = "blue") +
+  geom_point(aes(x=Hour, y=pred), color = "red")
+```
+
+Conclusion
+
+Looking at the charts, we see shootings were going down until 2019 and then there is a spike and potential re-normalization in 2020 with COVID.  There is a clear relationship between time (hour) and shootings.  From the other charts there are some other metrics that could have a relationship with a shoot, such as which borough and sex of perp.
+
+My model is a simple linear model using time (hour) to predict number of shootings.  The relationship isn't linear, so hour is squared.  Then a really strong model is produced. 
